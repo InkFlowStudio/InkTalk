@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>InkTalk</title>
+  <style>
+    body { font-family: sans-serif; background: #0e0e0e; color: white; text-align: center; padding: 50px; }
+    button { padding: 15px 30px; font-size: 18px; margin: 20px; background: #4CAF50; color: white; border: none; border-radius: 10px; }
+    #response { margin-top: 30px; font-size: 20px; max-width: 500px; margin-left: auto; margin-right: auto; }
+  </style>
+</head>
+<body>
+  <h1>🎙️ InkTalk</h1>
+  <p>Press the button and talk to Alex!</p>
+  <button onclick="startRecognition()">🎤 Start Talking</button>
+  <div id="response"></div>
+
+  <script>
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    function startRecognition() {
+      recognition.start();
+    }
+
+    recognition.onresult = async function(event) {
+      const userInput = event.results[0][0].transcript;
+      document.getElementById("response").innerHTML = `You said: <i>${userInput}</i><br>Thinking...`;
+
+      const response = await getChatGPTResponse(userInput);
+      document.getElementById("response").innerHTML += `<br><b>Alex:</b> ${response}`;
+      speakText(response);
+    }
+
+    function speakText(text) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      speechSynthesis.speak(utterance);
+    }
+
+    async function getChatGPTResponse(prompt) {
+      const apiKey = 'YOUR_OPENAI_API_KEY'; // Replace with your real key
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      const data = await res.json();
+      return data.choices[0].message.content.trim();
+    }
+  </script>
+</body>
+</html>
