@@ -1,61 +1,134 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>InkTalk</title>
   <style>
-    body { font-family: sans-serif; background: #0e0e0e; color: white; text-align: center; padding: 50px; }
-    button { padding: 15px 30px; font-size: 18px; margin: 20px; background: #4CAF50; color: white; border: none; border-radius: 10px; }
-    #response { margin-top: 30px; font-size: 20px; max-width: 500px; margin-left: auto; margin-right: auto; }
+    :root { color-scheme: light dark; --bg:#0b0b0c; --panel:#131316; --text:#eaeaf0; --muted:#9aa1a9; --accent:#7c5cff; --border:#22222a; }
+    html,body { margin:0; height:100%; background:linear-gradient(180deg,#0a0a0b, #111119); color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial; }
+    .wrap { max-width:900px; margin:0 auto; padding:16px; }
+    header { display:flex; align-items:center; gap:12px; padding:12px 0; }
+    header h1 { margin:0; font-size:20px; letter-spacing:.4px; }
+    .badge { font-size:12px; color:var(--muted); border:1px solid var(--border); padding:2px 8px; border-radius:999px; }
+    .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    .messages { height:60vh; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:14px; scroll-behavior:smooth; }
+    .msg { display:flex; gap:12px; }
+    .role { width:28px; height:28px; display:grid; place-items:center; border-radius:8px; background:#1a1a22; border:1px solid var(--border); font-size:12px; color:var(--muted); }
+    .bubble { flex:1; background:#151520; border:1px solid var(--border); padding:12px 14px; border-radius:10px; white-space:pre-wrap; line-height:1.45; }
+    .user .bubble { background:#111118; }
+    .assistant .bubble { background:#151520; }
+    .toolbar { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); background:#0f0f15; }
+    select, button, textarea, input { background:#12121a; color:var(--text); border:1px solid var(--border); border-radius:8px; }
+    select, button { height:40px; padding:0 10px; }
+    textarea { flex:1; min-height:40px; max-height:140px; padding:10px; resize:vertical; }
+    button.primary { background:linear-gradient(180deg,#7c5cff,#5e46ff); border:0; }
+    .muted { color:var(--muted); font-size:12px; }
+    .footer { margin-top:8px; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+    .link { color:#a99cff; text-decoration:none; }
   </style>
 </head>
 <body>
-  <h1>🎙️ InkTalk</h1>
-  <p>Press the button and talk to Alex!</p>
-  <button onclick="startRecognition()">🎤 Start Talking</button>
-  <div id="response"></div>
+  <div class="wrap">
+    <header>
+      <h1>🖋️ InkTalk</h1>
+      <span class="badge">alpha</span>
+    </header>
+
+    <div class="panel">
+      <div id="messages" class="messages"></div>
+      <div class="toolbar">
+        <select id="model">
+          <option value="llama3-70b-8192">Llama 3 70B (Groq)</option>
+          <option value="llama3-8b-8192">Llama 3 8B (faster)</option>
+        </select>
+        <textarea id="input" placeholder="Type a message…"></textarea>
+        <button id="send" class="primary">Send</button>
+      </div>
+    </div>
+    <div class="footer">
+      <div class="muted">Keep it clean. The model still follows provider safety policies.</div>
+      <div>
+        <button id="clear">Clear</button>
+      </div>
+    </div>
+  </div>
 
   <script>
-    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    // TODO: replace after deploying the function
+    const PROXY_URL = "https://YOUR-NETLIFY-SUBDOMAIN.netlify.app/.netlify/functions/chat";
 
-    function startRecognition() {
-      recognition.start();
+    const messagesEl = document.getElementById('messages');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const modelEl = document.getElementById('model');
+    const clearBtn = document.getElementById('clear');
+
+    let history = JSON.parse(localStorage.getItem('inktalk_history') || '[]');
+
+    function render() {
+      messagesEl.innerHTML = '';
+      for (const m of history) {
+        const row = document.createElement('div');
+        row.className = `msg ${m.role}`;
+        const role = document.createElement('div');
+        role.className = 'role';
+        role.textContent = m.role === 'user' ? 'U' : 'A';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = m.content;
+        row.appendChild(role);
+        row.appendChild(bubble);
+        messagesEl.appendChild(row);
+      }
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      localStorage.setItem('inktalk_history', JSON.stringify(history));
     }
 
-    recognition.onresult = async function(event) {
-      const userInput = event.results[0][0].transcript;
-      document.getElementById("response").innerHTML = `You said: <i>${userInput}</i><br>Thinking...`;
+    async function send() {
+      const text = inputEl.value.trim();
+      if (!text) return;
+      inputEl.value = '';
+      sendBtn.disabled = true;
 
-      const response = await getChatGPTResponse(userInput);
-      document.getElementById("response").innerHTML += `<br><b>Alex:</b> ${response}`;
-      speakText(response);
+      history.push({ role: 'user', content: text });
+      render();
+
+      try {
+        const res = await fetch(PROXY_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: modelEl.value,
+            messages: history.slice(-30) // keep context short for now
+          }),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`${res.status} ${res.statusText}: ${errText}`);
+        }
+        const data = await res.json();
+        const reply = data.content || data.raw?.choices?.[0]?.message?.content || '(no content)';
+        history.push({ role: 'assistant', content: reply });
+      } catch (e) {
+        history.push({ role: 'assistant', content: `Error: ${e.message}` });
+      } finally {
+        render();
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
     }
 
-    function speakText(text) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'en-US';
-      speechSynthesis.speak(utterance);
-    }
+    sendBtn.addEventListener('click', send);
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    clearBtn.addEventListener('click', () => {
+      history = [];
+      render();
+    });
 
-    async function getChatGPTResponse(prompt) {
-      const apiKey = 'YOUR_OPENAI_API_KEY'; // Replace with your real key
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "gpt-3.5-turbo",
-          messages: [{ role: "user", content: prompt }]
-        })
-      });
-      const data = await res.json();
-      return data.choices[0].message.content.trim();
-    }
+    render();
   </script>
 </body>
 </html>
